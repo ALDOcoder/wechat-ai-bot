@@ -1,0 +1,70 @@
+# ============================================================================
+# 个人微信 AI 自动回复机器人配置（Java 逻辑端）
+#
+# 架构说明（Java 只负责“思考”，Python 负责微信收发）：
+#   1. 本服务（Spring Boot）只提供 REST 接口，调用远端大模型生成回复；
+#   2. Python 端脚本（python/wechat_bridge_3x.py 或 _4x.py）负责用 wxauto
+#      监听微信新消息，把消息 POST 到本服务，再把 AI 回复发回微信。
+#
+# 风险提示：
+#   1. 个人微信自动化违反微信用户协议，账号可能被限制/封禁，务必使用【测试小号】！
+#   2. 聊天内容会发送到第三方大模型服务（DeepSeek/OpenAI），切勿输入隐私或机密信息。
+#   3. api-key 是敏感信息：不要提交到 git，推荐用环境变量注入（见下方示例）。
+#   4. 旧方案 wechat-api（网页版协议）已默认关闭：微信服务器对大多数账号返回
+#      ret=1203（不能登录网页微信），网页版方案不可用，请用 wxauto 方案。
+# ============================================================================
+spring:
+  application:
+    name: wechat-ai-bot
+
+  # 必须启用 Web 服务器（默认即 servlet），否则 /api/reply 桥接接口不生效
+  main:
+    web-application-type: servlet
+
+  ai:
+    openai:
+      # 远端 HTTPS 接口地址（严禁本地 Ollama / 本地模型）
+      # DeepSeek 官方：https://api.deepseek.com （兼容 /v1/chat/completions）
+      # OpenAI 官方：https://api.openai.com
+      # 其他 OpenAI 兼容服务：如 https://api.siliconflow.cn 等
+      base-url: https://api.deepseek.com
+
+      # API Key 占位：从 DeepSeek / OpenAI 控制台申请
+      # 推荐用环境变量注入，例如 Windows PowerShell：
+      #   $env:DEEPSEEK_API_KEY = "sk-你的key"
+      # 未设置环境变量时会使用下面的占位符，调用时会报 401，提醒你还没配置。
+      api-key: ${DEEPSEEK_API_KEY:sk-REPLACE_ME}
+
+      chat:
+        options:
+          # 模型名称占位：DeepSeek 用 deepseek-chat / deepseek-reasoner
+          # OpenAI 用 gpt-4o-mini / gpt-4o 等
+          model: deepseek-chat
+          # 温度：0 ~ 2，越大越随机
+          temperature: 0.7
+
+# 服务器端口（Python 脚本默认连接 http://127.0.0.1:8080）
+server:
+  port: 8080
+
+logging:
+  # 同时把日志写入项目根目录下的 logs/wechat-ai-bot.txt（控制台仍会输出，重启后生效）
+  file:
+    name: logs/wechat-ai-bot.txt
+  level:
+    # 旧网页版微信协议的调试日志已不需要，保持 INFO 即可
+    io.uouo.wechat: INFO
+
+# 微信机器人参数（自定义配置，映射到 WeChatBotProperties）
+wechat:
+  bot:
+    # 旧方案（网页版 wechat-api-uouo）是否启用：默认 false。
+    # 推荐用 Python + wxauto 收发微信，Java 只做 AI 推理。
+    # 若仍想尝试网页版登录，可改为 true（但多数账号会被 ret=1203 拒绝）。
+    enabled: false
+    # auto-login 必须保持 false（wechat-api-uouo 有重复登录 bug，会把自己踢下线）
+    auto-login: false
+    # 在终端打印登录二维码（仅旧网页版方案使用）
+    show-terminal: true
+    # 框架自带自动回复（仅旧网页版方案使用，建议 false，由 AI 逻辑处理）
+    auto-reply: false

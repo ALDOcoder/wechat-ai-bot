@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      ⚠️ 风险提示：
+      1. 本项目通过非官方网页版协议操作个人微信，违反《微信软件许可及服务协议》，
+         账号存在被限制登录、封禁等风险，请务必使用【测试小号】运行，不要使用主号！
+      2. wechat-api 项目已于 2018 年停止维护，微信对网页版协议限制越来越严，
+         部分账号可能无法登录网页版，届时请换用 UOS 协议 fork 或其他方案。
+      3. 本项目调用的是远端 HTTPS 大模型接口，聊天内容会发送到第三方服务，
+         注意保护隐私，不要发送敏感信息。
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.16</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.example</groupId>
+    <artifactId>wechat-ai-bot</artifactId>
+    <version>1.0.0</version>
+    <name>wechat-ai-bot</name>
+    <description>基于 Spring Boot 3 + Spring AI + wechat-api 的个人微信自动回复机器人</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <!-- 显式指定编译目标版本，保证 Maven 命令行与 IDE 导入都使用 Java 17，
+             避免 IDE 因模块语言级别缺失而退回默认的 1.5（报“不支持发行版本 5”） -->
+        <maven.compiler.release>17</maven.compiler.release>
+        <spring-ai.version>1.1.8</spring-ai.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring AI BOM：统一管理 Spring AI 各模块版本 -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!--
+          Spring Boot Web 服务器：对外提供 REST 桥接接口，
+          供 Python 端（wxauto）调用：POST /api/reply
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!--
+          Spring AI 的 OpenAI 兼容客户端：通过 spring.ai.openai.base-url / api-key 配置，
+          可调用任意 OpenAI 兼容的远端 HTTPS 接口（DeepSeek、OpenAI、硅基流动等）。
+          ⚠️ 严禁使用本地 Ollama / 本地模型。
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+
+        <!--
+          wechat-api-uouo 以源码方式引入（vendored，位于 src/main/java/io/uouo/wechat）：
+          Maven 中央仓库的 1.0.0 jar 是 2021 年旧构建，缺少 UOS 登录修复（新版登录响应
+          不再返回 XML 凭证，必须从 Cookie 获取 wxsid/wxuin 等），因此改为引入源码并打了补丁。
+          原项目开源协议：MPL 2.0，署名见 src/main/java/io/uouo/wechat/VENDORED-NOTICE.md。
+          以下依赖是 vendored 源码运行时需要的库。
+        -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.12.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.11.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.vdurmont</groupId>
+            <artifactId>emoji-java</artifactId>
+            <version>4.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

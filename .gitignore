@@ -1,0 +1,14 @@
+target/
+*.log
+logs/
+assets/
+login.json
+__pycache__/
+*.pyc
+python/.venv/
+python/config.ini
+python/wxautox文件下载/
+.idea/
+*.iml
+.vscode/
+.DS_Store

@@ -1,0 +1,24 @@
+# ============================================================
+# 微信 AI 机器人 Python 端依赖
+# ============================================================
+
+# 通用：调用 Java 桥接接口（POST /api/reply）
+requests>=2.31
+
+# ---------- 3.x 路线（推荐，免费，微信 3.9.8.15）----------
+# wxauto 3.9 源码已 vendored 到 python/wxauto/（MIT 协议，见该目录 LICENSE），
+# 下面的依赖是它运行所需的第三方库：
+uiautomation>=2.0.18
+Pillow
+pywin32
+psutil
+pyperclip
+typing_extensions
+
+# ---------- 4.x 路线（微信 4.x）----------
+# 免费版 wxauto4：没有监听接口，配合 wechat_bridge_4x_free.py 用“轮询会话”方案自动回复；
+# Plus 付费版 wxautox4：有完整监听接口，配合 wechat_bridge_4x.py 使用，但需要激活码：
+#   pip install wxautox4
+#   wxautox4 auth activate 你的激活码
+wxauto4
+wxautox4
