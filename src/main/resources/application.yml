@@ -68,3 +68,22 @@ wechat:
     show-terminal: true
     # 框架自带自动回复（仅旧网页版方案使用，建议 false，由 AI 逻辑处理）
     auto-reply: false
+
+# ============================================================================
+# Obsidian 知识库接入（关键词检索 RAG，方案 A）
+# ============================================================================
+obsidian:
+  # Obsidian 库根目录（绝对路径）。留空 = 不启用 RAG。
+  # 推荐用环境变量注入，例如：
+  #   $env:OBSIDIAN_VAULT_PATH = "C:\Users\你的用户名\Desktop\wo\webflow"
+  vault-path: ${OBSIDIAN_VAULT_PATH:}
+  # 提问时最多拼入 Prompt 的笔记块数量
+  top-k: 5
+  # 单个笔记块的最大字符数
+  max-chunk-chars: 600
+  # 相对路径中包含这些片段的文件不索引（默认排除工具目录和私人聊天 40-Life）
+  exclude-patterns:
+    - .mimocode
+    - node_modules
+    - .obsidian
+    - 40-Life

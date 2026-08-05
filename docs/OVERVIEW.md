@@ -2,6 +2,7 @@
 
 > 架构一句话：**Java 负责“思考”（调用远端大模型），Python 负责“收发”（操作微信 PC 客户端）**。
 > 本文档覆盖：为什么这么做、三条路线怎么选、完整启动步骤、配置说明、工作原理、常见问题与风险。
+> 项目方向与长期规划见 [路线图](ROADMAP.md)。
 
 ---
 
@@ -216,6 +217,22 @@ python wechat_bridge_4x_free.py --reply-friends 姐姐,张三 --reply-groups --g
 | `--scan-all` | 旧模式下的全量扫描 |
 | `--ping` | 只检查 Java 服务健康 |
 
+### 7.4 Obsidian 知识库问答（RAG）
+
+配置 `obsidian.vault-path`（或环境变量 `OBSIDIAN_VAULT_PATH`）后，Java 启动时自动扫描
+Markdown 库，按标题/段落切块，提问时用轻量 BM25 关键词检索命中 top-k 笔记块拼进 Prompt，
+让 AI 基于你自己的笔记回答。
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `obsidian.vault-path` | 空（不启用） | Obsidian 库根目录 |
+| `obsidian.top-k` | 5 | 每次提问拼入的笔记块数 |
+| `obsidian.max-chunk-chars` | 600 | 单块最大字符数 |
+| `obsidian.exclude-patterns` | `.mimocode` / `node_modules` / `.obsidian` / `40-Life` | 相对路径包含即排除 |
+
+调试接口：`GET /api/rag/status`（索引状态）、`POST /api/rag/refresh`（重建索引）、
+`GET /api/rag/search?q=...`（测试检索）。私人聊天目录（`40-Life`）默认不索引，避免隐私外泄。
+
 ---
 
 ## 8. 工作原理：预览轮询模式
@@ -239,11 +256,11 @@ python wechat_bridge_4x_free.py --reply-friends 姐姐,张三 --reply-groups --g
 
 ### 对话记忆（多轮上下文）
 
-Java 端通过 Spring AI 官方的 `ChatClient` + `MessageChatMemoryAdvisor` 实现多轮记忆：
+Java 端使用 Spring AI 官方的 `ChatMemory` 接口实现多轮记忆：
 
 - 每个微信聊天对象 = 一个会话（conversationId = 发送者名）；
 - 记忆用 `MessageWindowChatMemory` 滑动窗口实现，**每个会话保留最近 20 条消息**（约 10 轮），
-  自动带上历史上下文，同时控制 token 成本；
+  每次请求先取历史拼进 Prompt，再把“用户消息 + AI 回复”写回记忆，同时控制 token 成本；
 - 发送 **“清空记忆”** 会清空当前会话的上下文并回复确认；
 - 记忆保存在 JVM 内存中，**重启 Java 服务后会清空**；如需重启后仍保留，
   可把 `ChatMemoryRepository` 换成 JDBC/文件实现（见 `MemoryConfig` 注释）。

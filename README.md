@@ -2,12 +2,14 @@
 
 **Java（Spring Boot 3 + Spring AI）只负责“思考”，Python（wxauto）负责微信消息收发。**
 
-> 📖 想了解完整的架构设计、原理、排障与风险，请看 [全面介绍文档](docs/OVERVIEW.md)。
+> 📖 项目方向与长期规划请看 [路线图](docs/ROADMAP.md)；完整架构与排障请看 [全面介绍文档](docs/OVERVIEW.md)。
 
 收到微信文本消息后，Python 把消息 POST 给 Java 服务，Java 调用**远端 HTTPS 大模型接口**（默认 DeepSeek，兼容 OpenAI），再把 AI 回复交给 Python 发回微信。
 
 支持**多轮对话记忆**：Java 端用 Spring AI 的 ChatMemory（滑动窗口，每会话保留最近 20 条消息），
 每个聊天对象独立上下文，发“清空记忆”可重置当前对话。
+
+支持 **Obsidian 知识库问答（关键词检索 RAG）**：配置库路径后，提问会自动检索相关笔记并据此回答。
 
 ```
 微信 PC 客户端
@@ -90,6 +92,23 @@ Invoke-RestMethod http://127.0.0.1:8080/api/health
 ```
 
 > Java 日志同时会写入项目根目录 `logs/wechat-ai-bot.txt`（控制台照常输出），方便回看每次消息与 AI 回复。
+
+### 3.5 启用 Obsidian 知识库问答（可选）
+
+```powershell
+$env:OBSIDIAN_VAULT_PATH = "C:\你的Obsidian库路径"
+```
+
+重启 Java 后自动建立索引，可用这些接口验证：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/api/rag/status      # 索引状态
+Invoke-RestMethod "http://127.0.0.1:8080/api/rag/search?q=金蝶苍穹"  # 测试检索
+```
+
+笔记变更后执行 `Invoke-RestMethod -Method Post http://127.0.0.1:8080/api/rag/refresh` 重建索引。
+默认排除 `.mimocode` / `node_modules` / `.obsidian` / `40-Life`（私人聊天），可用
+`application.yml` 的 `obsidian.exclude-patterns` 调整。
 
 > 默认 `wechat.bot.enabled=false`，旧的网页版微信登录已关闭，Java 端不会再弹二维码、不会创建 assets 二维码图片。
 

@@ -1,5 +1,7 @@
 package com.example.wechataibot.web;
 
+import com.example.wechataibot.config.ObsidianProperties;
+import com.example.wechataibot.rag.KeywordSearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -60,15 +62,21 @@ public class WechatBridgeController {
 
     private final ChatModel chatModel;
     private final ChatMemory chatMemory;
+    private final KeywordSearchService searchService;
+    private final ObsidianProperties obsidianProperties;
 
     /**
      * @param chatModel  Spring AI 自动注入的 OpenAI 兼容 ChatModel
      *                   （由 spring.ai.openai.base-url / api-key 配置驱动，远端 HTTPS 调用）
      * @param chatMemory 对话记忆（MemoryConfig 中定义的滑动窗口实现）
      */
-    public WechatBridgeController(ChatModel chatModel, ChatMemory chatMemory) {
+    public WechatBridgeController(ChatModel chatModel, ChatMemory chatMemory,
+                                  KeywordSearchService searchService,
+                                  ObsidianProperties obsidianProperties) {
         this.chatModel = chatModel;
         this.chatMemory = chatMemory;
+        this.searchService = searchService;
+        this.obsidianProperties = obsidianProperties;
     }
 
     /** 健康检查：Python 端启动时可先调用此接口确认 Java 服务在线 */
@@ -110,6 +118,24 @@ public class WechatBridgeController {
             // 组装 Prompt：系统提示 + 该会话的历史记忆 + 当前消息
             List<Message> messages = new ArrayList<>();
             messages.add(new SystemMessage(SYSTEM_PROMPT));
+
+            // 知识库检索（Obsidian RAG）：命中笔记拼成上下文，让 AI 基于真实笔记回答
+            if (obsidianProperties.isEnabled()) {
+                var hits = searchService.search(text, obsidianProperties.getTopK());
+                if (!hits.isEmpty()) {
+                    StringBuilder ctx = new StringBuilder("请优先参考以下本地笔记内容回答，若与问题无关可忽略：\n");
+                    for (var hit : hits) {
+                        ctx.append("【").append(hit.sourcePath());
+                        if (hit.heading() != null && !hit.heading().isBlank()) {
+                            ctx.append(" / ").append(hit.heading());
+                        }
+                        ctx.append("】\n").append(hit.text()).append("\n\n");
+                    }
+                    messages.add(new SystemMessage(ctx.toString()));
+                    log.info("RAG 命中 {} 个笔记块（会话 [{}]）", hits.size(), conversationId);
+                }
+            }
+
             messages.addAll(chatMemory.get(conversationId));
             messages.add(new UserMessage(text));
 
