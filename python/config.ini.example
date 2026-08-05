@@ -9,6 +9,10 @@
 # 留空 = 回复所有私聊好友
 friends =
 
+# 知识库访问白名单（角色）：只有这些好友的提问才会触发 Obsidian 笔记检索
+# 留空 = 只要通过 friends 白名单，任何人都能触发知识库
+rag_friends =
+
 # 是否回复群消息：true = 开，false = 关（默认关，降低风控风险）
 groups = false
 

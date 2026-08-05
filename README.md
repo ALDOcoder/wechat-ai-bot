@@ -171,14 +171,16 @@ python wechat_bridge_4x.py
 ```ini
 [reply]
 friends = 姐姐, 张三      # 只回复这些好友；留空 = 回复所有私聊
+rag_friends = 张三        # 只有这些好友能触发 Obsidian 知识库检索；留空 = 白名单内均可
 groups = false            # true = 回复群消息，false = 不回复（默认）
 group_names = 工作群       # 开启 groups 后，只回复这些群；留空 = 回复所有群
 ```
 
-也可以用命令行临时覆盖（优先级更高）：
+角色说明：`friends` 决定“谁能聊天”，`rag_friends` 决定“谁能触发本地知识库检索”
+（普通聊天者不会触发 RAG，保护隐私与 token）。也可以用命令行临时覆盖（优先级更高）：
 
 ```powershell
-python wechat_bridge_4x_free.py --reply-friends 姐姐,张三 --reply-groups --group-names 工作群
+python wechat_bridge_4x_free.py --reply-friends 姐姐,张三 --rag-friends 张三 --reply-groups --group-names 工作群
 ```
 
 ---

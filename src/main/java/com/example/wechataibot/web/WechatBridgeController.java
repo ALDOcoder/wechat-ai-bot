@@ -94,7 +94,7 @@ public class WechatBridgeController {
     @PostMapping("/reply")
     public ResponseEntity<ReplyResponse> reply(@RequestBody(required = false) ReplyRequest request) {
         if (request == null || request.content() == null || request.content().trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(new ReplyResponse("消息内容为空，无法处理。"));
+            return ResponseEntity.badRequest().body(new ReplyResponse("消息内容为空，无法处理。", false));
         }
 
         String text = request.content().trim();
@@ -111,16 +111,20 @@ public class WechatBridgeController {
             String ack = "好的，已清空我们之前的聊天记忆，重新开始聊吧。";
             MessageTraceLogger.sent(sender, ack);
             log.info("已清空会话 [{}] 的对话记忆", conversationId);
-            return ResponseEntity.ok(new ReplyResponse(ack));
+            return ResponseEntity.ok(new ReplyResponse(ack, false));
         }
 
+        boolean ragUsed = false;
         try {
             // 组装 Prompt：系统提示 + 该会话的历史记忆 + 当前消息
             List<Message> messages = new ArrayList<>();
             messages.add(new SystemMessage(SYSTEM_PROMPT));
 
-            // 知识库检索（Obsidian RAG）：命中笔记拼成上下文，让 AI 基于真实笔记回答
-            if (obsidianProperties.isEnabled()) {
+            // 知识库检索（Obsidian RAG）：仅当 Python 端显式允许（useRag=true，即发送者在
+            // rag_friends 角色白名单内）且库已启用时，才检索笔记拼成上下文。
+            // 非知识库角色（普通聊天者）不会触发本地笔记检索，保护隐私与 token。
+            boolean useRag = request.useRag() != null && request.useRag();
+            if (useRag && obsidianProperties.isEnabled()) {
                 var hits = searchService.search(text, obsidianProperties.getTopK());
                 if (!hits.isEmpty()) {
                     StringBuilder ctx = new StringBuilder("请优先参考以下本地笔记内容回答，若与问题无关可忽略：\n");
@@ -133,6 +137,7 @@ public class WechatBridgeController {
                     }
                     messages.add(new SystemMessage(ctx.toString()));
                     log.info("RAG 命中 {} 个笔记块（会话 [{}]）", hits.size(), conversationId);
+                    ragUsed = true;
                 }
             }
 
@@ -155,21 +160,21 @@ public class WechatBridgeController {
             // 单独的消息流水日志：记录要发送什么消息（logs/messages.txt）
             MessageTraceLogger.sent(sender, reply);
             log.info("收到 [{}] 的消息（{} 字），AI 回复（{} 字）", sender, text.length(), reply.trim().length());
-            return ResponseEntity.ok(new ReplyResponse(reply.trim()));
+            return ResponseEntity.ok(new ReplyResponse(reply.trim(), ragUsed));
         } catch (Exception e) {
             // AI 接口异常时不要静默丢消息：返回 200 + 友好兜底文案，Python 端会把提示发回微信
             MessageTraceLogger.sent(sender, "抱歉，AI 服务暂时不可用，请稍后再试。");
             log.error("调用远端大模型失败，会话 [{}]，原始消息：{}", conversationId, text, e);
-            return ResponseEntity.ok(new ReplyResponse("抱歉，AI 服务暂时不可用，请稍后再试。"));
+            return ResponseEntity.ok(new ReplyResponse("抱歉，AI 服务暂时不可用，请稍后再试。", ragUsed));
         }
     }
 
     /** 请求体 */
-    public record ReplyRequest(String sender, String content) {
+    public record ReplyRequest(String sender, String content, Boolean useRag) {
     }
 
     /** 响应体 */
-    public record ReplyResponse(String reply) {
+    public record ReplyResponse(String reply, boolean ragUsed) {
     }
 
     /** 健康检查响应 */

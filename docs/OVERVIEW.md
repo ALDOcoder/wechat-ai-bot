@@ -191,12 +191,15 @@ python wechat_bridge_4x_free.py --debug
 ```ini
 [reply]
 friends = 姐姐, 张三      # 只回复这些好友；留空 = 回复所有私聊
+rag_friends = 张三        # 只有这些好友能触发 Obsidian 知识库检索（角色分层）；留空 = 白名单内均可
 groups = false            # true = 回复群消息；false = 不回复（默认）
 group_names = 工作群       # 开启 groups 后，只回复这些群；留空 = 回复所有群
 skip_chats = 文件传输助手   # 完全跳过这些会话（不读取也不回复）
 ```
 
-名字要和微信里显示的一模一样（昵称或备注名）。命令行参数优先级更高：
+名字要和微信里显示的一模一样（昵称或备注名）。角色控制流程：Python 判断发送者是否在
+`rag_friends` 内，请求 Java 时带 `useRag` 标记，Java 只按标记决定是否检索本地笔记——
+普通聊天者不会触发知识库，保护隐私与 token。命令行参数优先级更高：
 
 ```powershell
 python wechat_bridge_4x_free.py --reply-friends 姐姐,张三 --reply-groups --group-names 工作群 --skip-chats 文件传输助手

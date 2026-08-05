@@ -4,6 +4,8 @@
 
 配置项（[reply] 段）：
     friends     好友白名单，逗号分隔；留空 = 回复所有私聊好友
+    rag_friends 知识库访问白名单（角色）：只有这些好友的提问才会触发
+                Obsidian 笔记检索；留空 = 任何人都能触发（需 friends 放行）
     groups      是否回复群消息：true/false（默认 false）
     group_names 群白名单，逗号分隔；留空 = 回复所有群（仅 groups=true 时生效）
     skip_chats  跳过这些会话（不读取也不回复），逗号分隔；
@@ -24,6 +26,7 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.ini"
 def default_config():
     return {
         "reply_friends": [],       # 好友白名单，空 = 全部私聊
+        "rag_friends": [],         # 知识库访问白名单（角色），空 = 均可触发
         "reply_groups": False,     # 是否回复群消息
         "reply_group_names": [],   # 群白名单，空 = 全部群
         "skip_chats": [],          # 完全跳过的会话（读取/回复都不做）
@@ -43,6 +46,7 @@ def load_config(config_path=None):
         parser.read(path, encoding="utf-8")
         if parser.has_section("reply"):
             cfg["reply_friends"] = _split_list(parser.get("reply", "friends", fallback=""))
+            cfg["rag_friends"] = _split_list(parser.get("reply", "rag_friends", fallback=""))
             cfg["reply_groups"] = parser.getboolean("reply", "groups", fallback=False)
             cfg["reply_group_names"] = _split_list(parser.get("reply", "group_names", fallback=""))
             cfg["skip_chats"] = _split_list(parser.get("reply", "skip_chats", fallback=""))
@@ -53,6 +57,8 @@ def apply_cli_overrides(cfg, args):
     """命令行参数覆盖配置文件（只覆盖显式给出的项）。"""
     if getattr(args, "reply_friends", None):
         cfg["reply_friends"] = _split_list(args.reply_friends)
+    if getattr(args, "rag_friends", None):
+        cfg["rag_friends"] = _split_list(args.rag_friends)
     if getattr(args, "reply_groups", False):
         cfg["reply_groups"] = True
     if getattr(args, "group_names", None):
@@ -80,3 +86,13 @@ def should_reply(cfg, chat, sender, chat_type):
     if cfg["reply_friends"]:
         return sender in cfg["reply_friends"] or chat in cfg["reply_friends"]
     return True
+
+
+def should_use_rag(cfg, sender):
+    """是否允许该发送者触发本地知识库（Obsidian）检索。
+
+    rag_friends 留空 = 不限（前提是通过 should_reply）；非空 = 只允许名单里的人。
+    """
+    if not cfg["rag_friends"]:
+        return True
+    return sender in cfg["rag_friends"]

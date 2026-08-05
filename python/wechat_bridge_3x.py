@@ -31,7 +31,7 @@ import time
 
 import requests
 
-from bot_config import apply_cli_overrides, load_config, should_reply
+from bot_config import apply_cli_overrides, load_config, should_reply, should_use_rag
 
 # 强制 stdout/stderr 行缓冲：即使输出被重定向或从启动器运行，也能实时看到日志
 if hasattr(sys.stdout, "reconfigure"):
@@ -70,6 +70,8 @@ def parse_args():
                         help="群消息也自动回复（默认只回私聊，降低风险）")
     parser.add_argument("--reply-friends", metavar="NAMES",
                         help="只回复这些好友（逗号分隔，覆盖 config.ini 的 friends）")
+    parser.add_argument("--rag-friends", metavar="NAMES",
+                        help="只有这些好友能触发 Obsidian 知识库检索（逗号分隔，覆盖 config.ini 的 rag_friends）")
     parser.add_argument("--group-names", metavar="NAMES",
                         help="开启群回复后，只回复这些群（逗号分隔，覆盖 config.ini 的 group_names）")
     parser.add_argument("--skip-chats", metavar="NAMES",
@@ -98,11 +100,11 @@ def ping_java(java_url: str) -> bool:
         return False
 
 
-def ask_ai(java_url: str, sender: str, content: str, timeout: int) -> str:
+def ask_ai(java_url: str, sender: str, content: str, timeout: int, use_rag: bool = True) -> str:
     """把微信消息发给 Java 端，返回 AI 回复文本。"""
     resp = requests.post(
         f"{java_url}/api/reply",
-        json={"sender": sender, "content": content},
+        json={"sender": sender, "content": content, "useRag": use_rag},
         timeout=timeout,
     )
     resp.raise_for_status()
@@ -178,7 +180,7 @@ def handle_message(wx, java_url: str, chat: str, sender: str, content: str,
 
     print(f"[RECV] {chat} <- {sender}：{content}")
     try:
-        reply = ask_ai(java_url, sender, content, ai_timeout)
+        reply = ask_ai(java_url, sender, content, ai_timeout, should_use_rag(cfg, sender))
     except Exception as e:
         print(f"[ERROR] 调用 Java/AI 失败：{e}")
         return
