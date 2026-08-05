@@ -6,6 +6,9 @@
 
 收到微信文本消息后，Python 把消息 POST 给 Java 服务，Java 调用**远端 HTTPS 大模型接口**（默认 DeepSeek，兼容 OpenAI），再把 AI 回复交给 Python 发回微信。
 
+支持**多轮对话记忆**：Java 端用 Spring AI 的 ChatMemory（滑动窗口，每会话保留最近 20 条消息），
+每个聊天对象独立上下文，发“清空记忆”可重置当前对话。
+
 ```
 微信 PC 客户端
    |  wxauto 监听新消息（3.x 免费版 或 4.x Plus 版）

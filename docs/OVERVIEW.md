@@ -237,6 +237,17 @@ python wechat_bridge_4x_free.py --reply-friends 姐姐,张三 --reply-groups --g
 - 无法可靠区分群聊，群消息会按私聊处理——**不想回群就用 `skip_chats` 或白名单排除**；
 - 每个会话只看最后一条消息（连续多条只回最新一条）。
 
+### 对话记忆（多轮上下文）
+
+Java 端通过 Spring AI 官方的 `ChatClient` + `MessageChatMemoryAdvisor` 实现多轮记忆：
+
+- 每个微信聊天对象 = 一个会话（conversationId = 发送者名）；
+- 记忆用 `MessageWindowChatMemory` 滑动窗口实现，**每个会话保留最近 20 条消息**（约 10 轮），
+  自动带上历史上下文，同时控制 token 成本；
+- 发送 **“清空记忆”** 会清空当前会话的上下文并回复确认；
+- 记忆保存在 JVM 内存中，**重启 Java 服务后会清空**；如需重启后仍保留，
+  可把 `ChatMemoryRepository` 换成 JDBC/文件实现（见 `MemoryConfig` 注释）。
+
 ---
 
 ## 9. 日志
