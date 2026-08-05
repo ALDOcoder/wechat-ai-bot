@@ -2,16 +2,22 @@ package com.example.wechataibot.web;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 桥接 Controller：Java 逻辑端对 Python 微信端（wxauto）暴露的 HTTP 接口。
@@ -26,8 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
  * </pre>
  *
  * <p>多轮记忆：每个聊天对象一个会话（conversationId = sender），
- * 由 {@link MessageChatMemoryAdvisor} 自动携带最近的聊天历史，
- * 窗口大小见 {@code MemoryConfig}（默认最近 20 条消息 ≈ 10 轮）。
+ * 直接使用 Spring AI 的 {@link ChatMemory}（滑动窗口，见 {@code MemoryConfig}），
+ * 每次请求带上该会话的历史消息，再把“用户消息 + AI 回复”写回记忆。
  * 发送“清空记忆”可清空当前会话的记忆。
  *
  * <p>⚠️ 风险提示（务必阅读）：
@@ -52,8 +58,8 @@ public class WechatBridgeController {
     /** 发送这条消息会清空当前会话的记忆 */
     private static final String CLEAR_MEMORY_COMMAND = "清空记忆";
 
+    private final ChatModel chatModel;
     private final ChatMemory chatMemory;
-    private final ChatClient chatClient;
 
     /**
      * @param chatModel  Spring AI 自动注入的 OpenAI 兼容 ChatModel
@@ -61,11 +67,8 @@ public class WechatBridgeController {
      * @param chatMemory 对话记忆（MemoryConfig 中定义的滑动窗口实现）
      */
     public WechatBridgeController(ChatModel chatModel, ChatMemory chatMemory) {
+        this.chatModel = chatModel;
         this.chatMemory = chatMemory;
-        this.chatClient = ChatClient.builder(chatModel)
-                .defaultSystem(SYSTEM_PROMPT)
-                .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
-                .build();
     }
 
     /** 健康检查：Python 端启动时可先调用此接口确认 Java 服务在线 */
@@ -104,16 +107,25 @@ public class WechatBridgeController {
         }
 
         try {
+            // 组装 Prompt：系统提示 + 该会话的历史记忆 + 当前消息
+            List<Message> messages = new ArrayList<>();
+            messages.add(new SystemMessage(SYSTEM_PROMPT));
+            messages.addAll(chatMemory.get(conversationId));
+            messages.add(new UserMessage(text));
+
             // 模型与温度等参数在 application.yml 的 spring.ai.openai.* 中配置；
-            // MessageChatMemoryAdvisor 会自动带上该会话的历史消息。
-            String reply = chatClient.prompt()
-                    .user(u -> u.text(text).param("conversationId", conversationId))
-                    .call()
-                    .content();
+            // 远端 HTTPS 调用大模型（DeepSeek / OpenAI 兼容接口）
+            String reply = chatModel.call(new Prompt(messages))
+                    .getResult()
+                    .getOutput()
+                    .getText();
 
             if (reply == null || reply.isBlank()) {
                 reply = "抱歉，AI 没有返回内容，请再试一次。";
             }
+            // 写回记忆：用户消息 + AI 回复（MessageWindowChatMemory 会自动裁剪窗口）
+            chatMemory.add(conversationId,
+                    List.of(new UserMessage(text), new AssistantMessage(reply)));
             // 单独的消息流水日志：记录要发送什么消息（logs/messages.txt）
             MessageTraceLogger.sent(sender, reply);
             log.info("收到 [{}] 的消息（{} 字），AI 回复（{} 字）", sender, text.length(), reply.trim().length());
