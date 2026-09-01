@@ -8,6 +8,7 @@ __pycache__/
 python/.venv/
 python/config.ini
 python/wxautox文件下载/
+web/node_modules/
 .idea/
 *.iml
 .vscode/

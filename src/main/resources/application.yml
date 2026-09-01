@@ -43,6 +43,19 @@ spring:
           # 温度：0 ~ 2，越大越随机
           temperature: 0.7
 
+  # MySQL 数据源：对话记忆 + 消息流水都存这里
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/wechat_bot?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:bot}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # 启动时自动执行 classpath:schema.sql 建表（CREATE TABLE IF NOT EXISTS，幂等）
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+
 # 服务器端口（Python 脚本默认连接 http://127.0.0.1:8080）
 server:
   port: 8080
@@ -75,8 +88,8 @@ wechat:
 obsidian:
   # Obsidian 库根目录（绝对路径）。留空 = 不启用 RAG。
   # 推荐用环境变量注入，例如：
-  #   $env:OBSIDIAN_VAULT_PATH = "C:\Users\你的用户名\Desktop\wo\webflow"
-  vault-path: ${OBSIDIAN_VAULT_PATH:}
+  #   $env:OBSIDIAN_VAULT_PATH = "C:\Users\ChelseaFC\Desktop\wo\webflow"
+  vault-path: ${OBSIDIAN_VAULT_PATH:C:\Users\ChelseaFC\Desktop\wo\webflow}
   # 提问时最多拼入 Prompt 的笔记块数量
   top-k: 5
   # 单个笔记块的最大字符数

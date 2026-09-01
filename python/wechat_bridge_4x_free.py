@@ -120,11 +120,20 @@ def ping_java(java_url: str) -> bool:
         return False
 
 
-def ask_ai(java_url: str, sender: str, content: str, timeout: int, use_rag: bool = True) -> str:
-    """把微信消息发给 Java 端，返回 AI 回复文本。"""
+def ask_ai(java_url: str, sender: str, content: str, timeout: int, use_rag: bool = True,
+           scene: str = None, chat: str = None) -> str:
+    """把微信消息发给 Java 端，返回 AI 回复文本。
+
+    scene: friend / group / web（Java 端据此拼会话键，群聊还会用 chat=群名）
+    """
+    payload = {"sender": sender, "content": content, "useRag": use_rag}
+    if scene:
+        payload["scene"] = scene
+    if chat:
+        payload["chat"] = chat
     resp = requests.post(
         f"{java_url}/api/reply",
-        json={"sender": sender, "content": content, "useRag": use_rag},
+        json=payload,
         timeout=timeout,
     )
     resp.raise_for_status()
@@ -213,7 +222,8 @@ def handle_message(wx, java_url: str, chat: str, chat_type: str,
 
     print(f"[RECV] {chat} <- {sender}：{content}")
     try:
-        reply = ask_ai(java_url, sender, content, ai_timeout, should_use_rag(cfg, sender))
+        reply = ask_ai(java_url, sender, content, ai_timeout, should_use_rag(cfg, sender),
+                       scene=chat_type, chat=chat)
     except Exception as e:
         print(f"[ERROR] 调用 Java/AI 失败：{e}")
         return None
