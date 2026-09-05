@@ -222,14 +222,14 @@ public class WechatBridgeController {
         boolean ragEnabled = useRag && obsidianProperties.isEnabled();
 
         MessageTraceLogger.received(sender, text);
-        safeLogMessage(conversationId, scene, "RECEIVED", sender, clientIp, text, ragEnabled);
+        safeLogMessage(conversationId, scene, "RECEIVED", sender, clientIp, text, "", ragEnabled);
 
         // 记忆控制命令：清空当前会话的上下文
         if (CLEAR_MEMORY_COMMAND.equals(text)) {
             chatMemory.clear(conversationId);
             String ack = "好的，已清空我们之前的聊天记忆，重新开始聊吧。";
             MessageTraceLogger.sent(sender, ack);
-            safeLogMessage(conversationId, scene, "SENT", sender, clientIp, ack, ragEnabled);
+            safeLogMessage(conversationId, scene, "SENT", sender, clientIp, ack, "", ragEnabled);
             log.info("已清空会话 [{}] 的对话记忆", conversationId);
             return ResponseEntity.ok(new ReplyResponse(ack, false, null));
         }
@@ -283,7 +283,7 @@ public class WechatBridgeController {
             chatMemory.add(conversationId,
                     List.of(new UserMessage(text), new AssistantMessage(reply)));
             MessageTraceLogger.sent(sender, reply);
-            safeLogMessage(conversationId, scene, "SENT", sender, clientIp, reply, ragEnabled);
+            safeLogMessage(conversationId, scene, "SENT", sender, clientIp, reply, providerUsed, ragEnabled);
             log.info("收到 [{}] 的消息（{} 字），[{}] 回复（{} 字）",
                     sender, text.length(), providerUsed, reply.trim().length());
             return ResponseEntity.ok(new ReplyResponse(reply.trim(), ragEnabled, providerUsed));
@@ -292,7 +292,7 @@ public class WechatBridgeController {
             log.error("调用远端大模型失败，会话 [{}]，原始消息：{}", conversationId, text, e);
             String fallback = "抱歉，AI 服务暂时不可用，请稍后再试。";
             MessageTraceLogger.sent(sender, fallback);
-            safeLogMessage(conversationId, scene, "SENT", sender, clientIp, fallback, ragEnabled);
+            safeLogMessage(conversationId, scene, "SENT", sender, clientIp, fallback, "", ragEnabled);
             return ResponseEntity.ok(new ReplyResponse(fallback, ragEnabled, null));
         }
     }
@@ -318,9 +318,11 @@ public class WechatBridgeController {
 
     /** 消息流水落库，失败只告警、不影响正常回复 */
     private void safeLogMessage(String conversationId, String scene, String direction,
-                                String sender, String clientIp, String content, boolean ragEnabled) {
+                                String sender, String clientIp, String content,
+                                String provider, boolean ragEnabled) {
         try {
-            messageLogRepository.insert(conversationId, scene, direction, sender, clientIp, "text", content, ragEnabled);
+            messageLogRepository.insert(conversationId, scene, direction, sender, clientIp,
+                    "text", content, provider, ragEnabled);
         } catch (Exception e) {
             log.warn("消息流水落库失败（不影响回复）：{}", e.getMessage());
         }

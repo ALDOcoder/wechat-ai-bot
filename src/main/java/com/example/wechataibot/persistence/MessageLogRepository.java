@@ -21,12 +21,12 @@ public class MessageLogRepository {
 
     public void insert(String conversationId, String scene, String direction,
                        String sender, String clientIp, String msgType,
-                       String content, boolean useRag) {
+                       String content, String provider, boolean useRag) {
         jdbcTemplate.update(
                 "INSERT INTO message_log "
-                        + "(conversation_id, scene, direction, sender, client_ip, msg_type, content, use_rag, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(3))",
-                conversationId, scene, direction, sender, clientIp, msgType, content, useRag ? 1 : 0);
+                        + "(conversation_id, scene, direction, sender, client_ip, msg_type, provider, content, use_rag, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(3))",
+                conversationId, scene, direction, sender, clientIp, msgType, provider, content, useRag ? 1 : 0);
     }
 
     /** 列出 web 渠道的所有会话：标题取该会话第一条收到的消息，按最近活跃倒序 */
@@ -46,13 +46,14 @@ public class MessageLogRepository {
 
     /** 某个会话的完整历史（按时间正序） */
     public List<ChatMessage> listByConversation(String conversationId) {
-        String sql = "SELECT direction, sender, content, use_rag, created_at "
+        String sql = "SELECT direction, sender, content, provider, use_rag, created_at "
                 + "FROM message_log WHERE conversation_id = ? ORDER BY id ASC";
         return jdbcTemplate.query(sql,
                 (rs, i) -> new ChatMessage(
                         rs.getString("direction"),
                         rs.getString("sender"),
                         rs.getString("content"),
+                        rs.getString("provider"),
                         rs.getBoolean("use_rag"),
                         toLocal(rs.getTimestamp("created_at"))),
                 conversationId);
@@ -72,6 +73,7 @@ public class MessageLogRepository {
     }
 
     /** 单条历史消息 */
-    public record ChatMessage(String direction, String sender, String content, boolean useRag, LocalDateTime createdAt) {
+    public record ChatMessage(String direction, String sender, String content,
+                              String provider, boolean useRag, LocalDateTime createdAt) {
     }
 }

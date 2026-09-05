@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS message_log (
   sender          VARCHAR(100) NOT NULL DEFAULT '',
   client_ip       VARCHAR(45)  NOT NULL DEFAULT '',
   msg_type        VARCHAR(20)  NOT NULL DEFAULT 'text',
+  provider        VARCHAR(20)  NOT NULL DEFAULT '',  -- 本次回复使用的模型：zhipu/deepseek（收到的消息为空）
   content         MEDIUMTEXT   NOT NULL,
   use_rag         TINYINT(1)   NOT NULL DEFAULT 0,
   created_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
