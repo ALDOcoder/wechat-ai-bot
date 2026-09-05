@@ -21,28 +21,13 @@ spring:
   main:
     web-application-type: servlet
 
-  ai:
-    openai:
-      # 远端 HTTPS 接口地址（严禁本地 Ollama / 本地模型）
-      # 当前使用：智谱 GLM-4.7-Flash（永久免费，支持 function calling）
-      # ⚠️ 智谱的 OpenAI 兼容路径是 /api/paas/v4/chat/completions，
-      #    而 Spring AI 默认会追加 /v1/chat/completions，
-      #    所以必须用下面的 chat.completions-path 覆盖，否则会 404。
-      base-url: https://open.bigmodel.cn/api/paas/v4
-
-      # API Key：从智谱开放平台（open.bigmodel.cn）申请，格式一般是 id.secret
-      # 推荐用环境变量注入，例如 Windows PowerShell：
-      #   $env:ZHIPU_API_KEY = "你的key"
-      # 未设置环境变量时会使用下面的占位符，调用时会报 401，提醒你还没配置。
-      api-key: ${ZHIPU_API_KEY:sk-REPLACE_ME}
-
-      chat:
-        completions-path: /chat/completions
-        options:
-          # 免费模型：glm-4.7-flash（已验证支持 function calling）
-          model: glm-4.7-flash
-          # 温度：0 ~ 2，越大越随机
-          temperature: 0.7
+  # 模型改为双 Bean 管理（见 config/ModelConfig.java）：
+  #   - 智谱 zhipuChatModel（默认，GLM-4.7-Flash 免费，key=ZHIPU_API_KEY）
+  #   - DeepSeek deepSeekChatModel（付费，deepseek-chat，key=DEEPSEEK_API_KEY）
+  # 因此排除 Spring AI 的 OpenAI 自动配置，避免默认 bean 与自定义 bean 冲突。
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
 
   # MySQL 数据源：对话记忆 + 消息流水都存这里
   datasource:
