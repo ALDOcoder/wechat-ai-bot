@@ -4,6 +4,8 @@ import com.example.wechataibot.agent.GeneralAgentTools;
 import com.example.wechataibot.agent.KnowledgeAgentTool;
 import com.example.wechataibot.config.ObsidianProperties;
 import com.example.wechataibot.persistence.MessageLogRepository;
+import com.example.wechataibot.persistence.MessageLogRepository.ChatMessage;
+import com.example.wechataibot.persistence.MessageLogRepository.SessionSummary;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,7 +16,9 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,33 +28,25 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 桥接 Controller：Java 逻辑端对 Python 微信端（wxauto）暴露的 HTTP 接口。
+ * 桥接 Controller：Java 逻辑端对 Python 微信端（wxauto）与 Web 前端暴露的 HTTP 接口。
  *
  * <p>工作方式：
  * <pre>
- *   Python(wxauto) 收到微信新消息
- *       └─ POST /api/reply  {"sender":"张三","content":"你好"}
+ *   Python(wxauto) / Web 前端 收到消息
+ *       └─ POST /api/reply  {"sender":"张三","content":"你好","scene":"friend|web","sessionId":"..."}
  *             └─ Spring AI Agent（ChatClient + Function Calling）
  *                模型自主决定是否调用工具（知识库检索 / 当前时间）
- *       ┌─ 返回 {"reply":"你好呀！"}
- *   Python(wxauto) 把 reply 发回微信
+ *       ┌─ 返回 {"reply":"你好呀！","ragUsed":false}
  * </pre>
  *
- * <p><b>Agent 化改造</b>：不再是一问一答的固定管线，而是借助 Spring AI 的
- * {@link ChatClient} 工具调用（function calling）能力，让大模型自己决定下一步：
+ * <p>会话键（conversationId）规则：
  * <ul>
- *     <li>问题涉及本地知识 → 自主调用 {@code searchNotes} 工具（Agentic RAG）；</li>
- *     <li>问时间 → 自主调用 {@code getCurrentTime} 工具；</li>
- *     <li>普通闲聊 → 直接回答，不产生检索成本。</li>
+ *     <li>微信私聊：conversationId = 好友名，scene=friend</li>
+ *     <li>微信群聊：conversationId = group:群名:发送者，scene=group</li>
+ *     <li>Web 多会话：conversationId = web:<sessionId>，scene=web（前端每个会话一个独立 id）</li>
+ *     <li>Web 兜底（未传 sessionId）：conversationId = web:<客户端IP></li>
  * </ul>
- * Spring AI 的 {@code ChatClient} 会自动完成“模型 → 决定调工具 → 执行工具 →
- * 把结果回填 → 模型再作答”的循环。
- *
- * <p>多轮记忆沿用 {@link ChatMemory}（滑动窗口，见 {@code MemoryConfig}），
- * 每个聊天对象一个会话（私聊 conversationId = 好友名，群聊 = group:群名:发送者，
- * web 端 = web:客户端IP），持久化在 MySQL。知识库工具按
- * {@code rag_friends} 白名单（Python 端 {@code useRag} 标记）动态启用。
- * 收到/发送的消息同时写入 message_log 表（方向字段区分）。
+ * 会话列表 / 历史 / 删除通过 /api/sessions* 提供。
  *
  * <p>⚠️ 风险提示（务必阅读）：
  * <ul>
@@ -96,17 +92,42 @@ public class WechatBridgeController {
                 .build();
     }
 
-    /** 健康检查：Python 端启动时可先调用此接口确认 Java 服务在线 */
+    /** 健康检查：Python 端 / 前端启动时可先调用此接口确认 Java 服务在线 */
     @GetMapping("/health")
     public HealthResponse health() {
         return new HealthResponse("ok");
     }
 
+    /** 会话列表（仅 web 渠道），标题 = 每条会话第一条收到消息 */
+    @GetMapping("/sessions")
+    public List<SessionSummary> sessions() {
+        return messageLogRepository.listSessions();
+    }
+
+    /** 某个会话的完整历史（按时间正序） */
+    @GetMapping("/sessions/{conversationId}/messages")
+    public List<ChatMessage> sessionMessages(@PathVariable String conversationId) {
+        return messageLogRepository.listByConversation(conversationId);
+    }
+
+    /** 删除某个会话（流水 + 对话记忆一起清） */
+    @DeleteMapping("/sessions/{conversationId}")
+    public ResponseEntity<Void> deleteSession(@PathVariable String conversationId) {
+        int deleted = messageLogRepository.deleteByConversation(conversationId);
+        try {
+            chatMemory.clear(conversationId);
+        } catch (Exception e) {
+            log.warn("清空会话记忆失败（不影响删除流水）：{}", e.getMessage());
+        }
+        log.info("删除会话 [{}]（流水 {} 条）", conversationId, deleted);
+        return ResponseEntity.noContent().build();
+    }
+
     /**
-     * 核心接口：接收微信文本消息，由 Agent 自主调用工具后调用远端大模型，返回 AI 回复。
+     * 核心接口：接收消息，由 Agent 自主调用工具后调用远端大模型，返回 AI 回复。
      *
-     * @param request     JSON 请求体：{"sender": "发送者", "content": "消息内容", "useRag": "是否允许知识库", "scene": "friend/group/web", "chat": "群名（群聊时）"}
-     * @param httpRequest 原始 HTTP 请求，用于取客户端 IP（web 场景会话键）
+     * @param request     JSON 请求体：{"sender": "...", "content": "...", "useRag": true, "scene": "friend/group/web", "chat": "群名", "sessionId": "..."}
+     * @param httpRequest 原始 HTTP 请求，用于取客户端 IP（web 无 sessionId 时的兜底会话键）
      * @return JSON 响应体：{"reply": "AI 回复内容", "ragUsed": "本次是否允许了知识库工具"}
      */
     @PostMapping("/reply")
@@ -118,6 +139,7 @@ public class WechatBridgeController {
 
         String text = request.content().trim();
         String sender = request.sender() == null ? "" : request.sender().trim();
+        String sessionId = request.sessionId() == null ? "" : request.sessionId().trim();
         String clientIp = resolveClientIp(httpRequest);
 
         // 渠道：scene 缺省时做兼容判断（web 前端曾用 sender=web）
@@ -129,10 +151,10 @@ public class WechatBridgeController {
             default -> "web".equals(sender) ? "web" : "friend";
         };
 
-        // 会话 ID：一个聊天对象 = 一个会话，按渠道拼键
+        // 会话 ID：一个聊天对象 / 一个 web 会话 = 一个会话，按渠道拼键
         String conversationId;
         if ("web".equals(scene)) {
-            conversationId = "web:" + clientIp;
+            conversationId = sessionId.isEmpty() ? "web:" + clientIp : "web:" + sessionId;
         } else if ("group".equals(scene)) {
             String chatName = request.chat() == null ? "" : request.chat().trim();
             conversationId = "group:" + (chatName.isEmpty() ? sender : chatName) + ":" + sender;
@@ -220,7 +242,7 @@ public class WechatBridgeController {
     }
 
     /** 请求体 */
-    public record ReplyRequest(String sender, String content, Boolean useRag, String scene, String chat) {
+    public record ReplyRequest(String sender, String content, Boolean useRag, String scene, String chat, String sessionId) {
     }
 
     /** 响应体 */

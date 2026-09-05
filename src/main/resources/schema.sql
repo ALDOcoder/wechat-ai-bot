@@ -23,3 +23,14 @@ CREATE TABLE IF NOT EXISTS message_log (
   KEY idx_scene_time (scene, created_at),
   KEY idx_ip_time (client_ip, created_at)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- 会话设置：每个会话一行的“权限 + 偏好”
+-- preferred_model 记录该会话默认用哪个模型（zhipu=免费 / deepseek=付费）
+-- allow_deepseek  是否允许该会话切换到付费模型（默认 0 = 全禁，网页后台动态开启）
+CREATE TABLE IF NOT EXISTS conversation_setting (
+  conversation_id VARCHAR(100) NOT NULL PRIMARY KEY,
+  scene           VARCHAR(10)  NOT NULL,   -- friend / group / web
+  preferred_model VARCHAR(20)  NOT NULL DEFAULT 'zhipu',
+  allow_deepseek  TINYINT(1)   NOT NULL DEFAULT 0,
+  updated_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
