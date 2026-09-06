@@ -13,3 +13,4 @@ web/node_modules/
 *.iml
 .vscode/
 .DS_Store
+.zcode/

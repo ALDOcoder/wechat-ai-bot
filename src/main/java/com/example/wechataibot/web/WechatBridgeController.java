@@ -4,6 +4,7 @@ import com.example.wechataibot.agent.GeneralAgentTools;
 import com.example.wechataibot.agent.KnowledgeAgentTool;
 import com.example.wechataibot.config.ObsidianProperties;
 import com.example.wechataibot.persistence.ConversationSettingService;
+import com.example.wechataibot.persistence.ConversationSummaryService;
 import com.example.wechataibot.persistence.MessageLogRepository;
 import com.example.wechataibot.persistence.MessageLogRepository.ChatMessage;
 import com.example.wechataibot.persistence.MessageLogRepository.SessionSummary;
@@ -88,8 +89,8 @@ public class WechatBridgeController {
     private static final String CLEAR_MEMORY_COMMAND = "清空记忆";
 
     /** 可用模型标识 */
-    private static final String PROVIDER_ZHIPU = "zhipu";
-    private static final String PROVIDER_GLM4FLASH = "glm4flash";
+    private static final String PROVIDER_ZHIPU = "glm-4.7flash";
+    private static final String PROVIDER_GLM4FLASH = "glm-4flash";
     private static final String PROVIDER_DEEPSEEK = "deepseek";
 
     private final ChatClient zhipuChatClient;
@@ -101,6 +102,7 @@ public class WechatBridgeController {
     private final ObsidianProperties obsidianProperties;
     private final MessageLogRepository messageLogRepository;
     private final ConversationSettingService conversationSettingService;
+    private final ConversationSummaryService conversationSummaryService;
 
     public WechatBridgeController(@Qualifier("zhipuChatModel") OpenAiChatModel zhipuChatModel,
                                   @Qualifier("glm4FlashChatModel") OpenAiChatModel glm4FlashChatModel,
@@ -109,12 +111,14 @@ public class WechatBridgeController {
                                   GeneralAgentTools generalTools, KnowledgeAgentTool knowledgeTool,
                                   ObsidianProperties obsidianProperties,
                                   MessageLogRepository messageLogRepository,
-                                  ConversationSettingService conversationSettingService) {
+                                  ConversationSettingService conversationSettingService,
+                                  ConversationSummaryService conversationSummaryService) {
         this.generalTools = generalTools;
         this.knowledgeTool = knowledgeTool;
         this.obsidianProperties = obsidianProperties;
         this.messageLogRepository = messageLogRepository;
         this.conversationSettingService = conversationSettingService;
+        this.conversationSummaryService = conversationSummaryService;
         this.chatMemory = chatMemory;
         this.zhipuChatClient = ChatClient.builder(zhipuChatModel).defaultSystem(SYSTEM_PROMPT).build();
         this.glm4FlashChatClient = ChatClient.builder(glm4FlashChatModel).defaultSystem(SYSTEM_PROMPT).build();
@@ -152,6 +156,11 @@ public class WechatBridgeController {
             conversationSettingService.delete(conversationId);
         } catch (Exception e) {
             log.warn("删除会话设置失败（不影响删除流水）：{}", e.getMessage());
+        }
+        try {
+            conversationSummaryService.delete(conversationId);
+        } catch (Exception e) {
+            log.warn("删除会话滚动摘要失败（不影响删除流水）：{}", e.getMessage());
         }
         log.info("删除会话 [{}]（流水 {} 条）", conversationId, deleted);
         return ResponseEntity.noContent().build();
@@ -230,9 +239,14 @@ public class WechatBridgeController {
         MessageTraceLogger.received(sender, text);
         safeLogMessage(conversationId, scene, "RECEIVED", sender, clientIp, text, "", ragEnabled);
 
-        // 记忆控制命令：清空当前会话的上下文
+        // 记忆控制命令：清空当前会话的上下文（窗口记忆 + 滚动摘要一起重置）
         if (CLEAR_MEMORY_COMMAND.equals(text)) {
             chatMemory.clear(conversationId);
+            try {
+                conversationSummaryService.resetCursorAfterClear(conversationId);
+            } catch (Exception e) {
+                log.warn("重置滚动摘要失败（不影响清空记忆）：{}", e.getMessage());
+            }
             String ack = "好的，已清空我们之前的聊天记忆，重新开始聊吧。";
             MessageTraceLogger.sent(sender, ack);
             safeLogMessage(conversationId, scene, "SENT", sender, clientIp, ack, "", ragEnabled);
@@ -256,9 +270,13 @@ public class WechatBridgeController {
         }
 
         try {
-            // 组装 Prompt：系统提示 + 该会话的历史记忆 + 当前消息（记忆两个模型共享）
+            // 组装 Prompt：系统提示 + 早期对话摘要（滚动摘要，有才加）+ 窗口内记忆 + 当前消息
             List<Message> messages = new ArrayList<>();
             messages.add(new SystemMessage(SYSTEM_PROMPT));
+            String summary = conversationSummaryService.getSummary(conversationId);
+            if (summary != null) {
+                messages.add(new SystemMessage("【早期对话摘要】以下是更早对话的要点，供参考：\n" + summary));
+            }
             messages.addAll(chatMemory.get(conversationId));
             messages.add(new UserMessage(text));
 
@@ -292,6 +310,8 @@ public class WechatBridgeController {
             // 写回记忆：用户消息 + AI 回复（MessageWindowChatMemory 会自动裁剪窗口）
             chatMemory.add(conversationId,
                     List.of(new UserMessage(text), new AssistantMessage(reply)));
+            // 异步检查滚动摘要：有出窗积压时自动压缩旧对话（不阻塞本次回复）
+            conversationSummaryService.maybeSummarizeAsync(conversationId);
             MessageTraceLogger.sent(sender, reply);
             safeLogMessage(conversationId, scene, "SENT", sender, clientIp, reply, providerUsed, ragEnabled);
             log.info("收到 [{}] 的消息（{} 字），[{}] 回复（{} 字）",

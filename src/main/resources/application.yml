@@ -72,6 +72,15 @@ wechat:
     show-terminal: true
     # 框架自带自动回复（仅旧网页版方案使用，建议 false，由 AI 逻辑处理）
     auto-reply: false
+    # 对话记忆参数（映射到 MemoryProperties）
+    memory:
+      # 每个会话保留的最近消息条数（用户+AI 合计，约等于一半轮数）
+      max-messages: 40
+      # 滚动摘要：滑出窗口的旧对话由免费模型异步压缩成要点，注入 system prompt，
+      # 解决"窗外失忆"。关闭后窗口外的历史不再进入上下文。
+      summary-enabled: true
+      # 摘要最大字符数（超出截断，控制注入的 token 量）
+      summary-max-chars: 500
 
 # ============================================================================
 # Obsidian 知识库接入（关键词检索 RAG，方案 A）

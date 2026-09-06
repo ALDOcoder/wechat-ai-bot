@@ -25,6 +25,15 @@ CREATE TABLE IF NOT EXISTS message_log (
   KEY idx_ip_time (client_ip, created_at)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
+-- 滚动摘要：每个会话一份，覆盖"会话开头 ~ 窗口边界"的旧对话要点
+-- last_message_id 是游标 = 摘要已覆盖到 message_log.id 的位置（该条之前都已进摘要）
+CREATE TABLE IF NOT EXISTS conversation_summary (
+  conversation_id VARCHAR(100) NOT NULL PRIMARY KEY,
+  summary         TEXT         NOT NULL,
+  last_message_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at      DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
 -- 会话设置：每个会话一行的“权限 + 偏好”
 -- preferred_model 记录该会话默认用哪个模型（zhipu=免费 / deepseek=付费）
 -- allow_deepseek  是否允许该会话切换到付费模型（默认 0 = 全禁，网页后台动态开启）

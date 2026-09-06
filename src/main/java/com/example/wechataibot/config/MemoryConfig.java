@@ -15,6 +15,10 @@ import org.springframework.context.annotation.Configuration;
  * 每个聊天对象一个会话（conversationId = 微信里的聊天对象名 / web:IP），
  * 只保留最近 {@code maxMessages} 条消息，防止上下文无限膨胀、也控制 token 成本。
  *
+ * <p>窗口大小可在 application.yml 的 {@code wechat.bot.memory.max-messages} 调整；
+ * 滑出窗口的旧对话不会丢——由滚动摘要服务压缩成要点后注入 system prompt
+ * （见 {@link ConversationSummaryService}，可用 summary-enabled 关闭）。
+ *
  * <p>⚠️ 说明：
  * <ul>
  *     <li>记忆持久化在 MySQL 的 chat_memory 表（messages_json 列）；</li>
@@ -24,14 +28,12 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class MemoryConfig {
 
-    /** 每个会话最多保留的消息条数（约等于 10 轮对话） */
-    private static final int MAX_MESSAGES = 20;
-
     @Bean
-    public ChatMemory chatMemory(JdbcChatMemoryRepository chatMemoryRepository) {
+    public ChatMemory chatMemory(JdbcChatMemoryRepository chatMemoryRepository,
+                                 MemoryProperties memoryProperties) {
         return MessageWindowChatMemory.builder()
                 .chatMemoryRepository(chatMemoryRepository)
-                .maxMessages(MAX_MESSAGES)
+                .maxMessages(memoryProperties.getMaxMessages())
                 .build();
     }
 }

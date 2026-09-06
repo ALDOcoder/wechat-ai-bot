@@ -6,8 +6,10 @@
 
 收到微信文本消息后，Python 把消息 POST 给 Java 服务，Java 调用**远端 HTTPS 大模型接口**（默认 DeepSeek，兼容 OpenAI），再把 AI 回复交给 Python 发回微信。
 
-支持**多轮对话记忆**：Java 端用 Spring AI 的 ChatMemory（滑动窗口，每会话保留最近 20 条消息），
-每个聊天对象独立上下文，发“清空记忆”可重置当前对话。
+支持**多轮对话记忆**：Java 端用 Spring AI 的 ChatMemory（滑动窗口，默认每会话保留最近 40 条消息，
+可在 `application.yml` 的 `wechat.bot.memory.max-messages` 调整），每个聊天对象独立上下文。
+滑出窗口的旧对话会由免费模型**异步压缩成滚动摘要**注入上下文（`wechat.bot.memory.summary-enabled` 可关闭），
+几十轮之前的事也能记得要点。发“清空记忆”可重置当前对话（窗口 + 摘要一起清）。
 
 支持 **Obsidian 知识库问答（关键词检索 RAG）**：配置库路径后，提问会自动检索相关笔记并据此回答。
 
