@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS rag_exclude_pattern (
   UNIQUE KEY uk_pattern (pattern)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
+-- 受保护目录"加入索引"状态：一行一个目录（如 40-Life），持久化、重启不丢
+-- 目录清单本身在 application.yml 的 obsidian.protected-dirs 配置；本表只记录"已加入索引"的成员
+CREATE TABLE IF NOT EXISTS rag_unlock_path (
+  path       VARCHAR(200) NOT NULL PRIMARY KEY,
+  created_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
 -- 会话设置：每个会话一行的“权限 + 偏好”
 -- preferred_model 记录该会话默认用哪个模型（zhipu=免费 / deepseek=付费）
 -- allow_deepseek  是否允许该会话切换到付费模型（默认 0 = 全禁，网页后台动态开启）

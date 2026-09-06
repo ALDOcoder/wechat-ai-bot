@@ -10,6 +10,7 @@ $deepseekKey = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY', 'User')
 $vault = [Environment]::GetEnvironmentVariable('OBSIDIAN_VAULT_PATH', 'User')
 $mysqlUser = [Environment]::GetEnvironmentVariable('MYSQL_USER', 'User')
 $mysqlPass = [Environment]::GetEnvironmentVariable('MYSQL_PASSWORD', 'User')
+$vaultKey = [Environment]::GetEnvironmentVariable('RAG_VAULT_KEY', 'User')
 
 if ($key) {
     $env:ZHIPU_API_KEY = $key
@@ -43,6 +44,14 @@ if ($mysqlPass) {
     Write-Host "[OK] MYSQL_PASSWORD 已加载（长度 $($mysqlPass.Length)）"
 } else {
     Write-Host "[WARN] 未设置 MYSQL_PASSWORD，数据库连接会失败。"
+}
+
+if ($vaultKey) {
+    $env:RAG_VAULT_KEY = $vaultKey
+    Write-Host "[OK] RAG_VAULT_KEY 已加载（知识库管理面门禁已启用）"
+} else {
+    Write-Host "[WARN] 未设置 RAG_VAULT_KEY，知识库管理面（/api/vault、/api/rag）【未上锁】。"
+    Write-Host "       建议执行: setx RAG_VAULT_KEY \"你的管理密钥\" 后重新打开终端启动。"
 }
 
 Write-Host "[INFO] 启动 Spring Boot（mvn spring-boot:run）..."

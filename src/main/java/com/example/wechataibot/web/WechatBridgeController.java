@@ -10,6 +10,7 @@ import com.example.wechataibot.persistence.MessageLogRepository;
 import com.example.wechataibot.persistence.MessageLogRepository.ChatMessage;
 import com.example.wechataibot.persistence.MessageLogRepository.SessionSummary;
 import com.example.wechataibot.persistence.entity.ConversationSetting;
+import com.example.wechataibot.rag.VaultNoteService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -106,6 +107,7 @@ public class WechatBridgeController {
     private final MessageLogRepository messageLogRepository;
     private final ConversationSettingService conversationSettingService;
     private final ConversationSummaryService conversationSummaryService;
+    private final VaultNoteService vaultNoteService;
 
     public WechatBridgeController(@Qualifier("zhipuChatModel") OpenAiChatModel zhipuChatModel,
                                   @Qualifier("glm4FlashChatModel") OpenAiChatModel glm4FlashChatModel,
@@ -116,7 +118,8 @@ public class WechatBridgeController {
                                   ObsidianProperties obsidianProperties,
                                   MessageLogRepository messageLogRepository,
                                   ConversationSettingService conversationSettingService,
-                                  ConversationSummaryService conversationSummaryService) {
+                                  ConversationSummaryService conversationSummaryService,
+                                  VaultNoteService vaultNoteService) {
         this.generalTools = generalTools;
         this.knowledgeTool = knowledgeTool;
         this.noteWriterTool = noteWriterTool;
@@ -124,6 +127,7 @@ public class WechatBridgeController {
         this.messageLogRepository = messageLogRepository;
         this.conversationSettingService = conversationSettingService;
         this.conversationSummaryService = conversationSummaryService;
+        this.vaultNoteService = vaultNoteService;
         this.chatMemory = chatMemory;
         this.zhipuChatClient = ChatClient.builder(zhipuChatModel).defaultSystem(SYSTEM_PROMPT).build();
         this.glm4FlashChatClient = ChatClient.builder(glm4FlashChatModel).defaultSystem(SYSTEM_PROMPT).build();
@@ -325,15 +329,23 @@ public class WechatBridgeController {
             safeLogMessage(conversationId, scene, "SENT", sender, clientIp, reply, providerUsed, ragEnabled);
             log.info("收到 [{}] 的消息（{} 字），[{}] 回复（{} 字）",
                     sender, text.length(), providerUsed, reply.trim().length());
-            return ResponseEntity.ok(new ReplyResponse(reply.trim(), ragEnabled, providerUsed));
+            return ResponseEntity.ok(new ReplyResponse(reply.trim(), ragEnabled, providerUsed, drainPendingNotes()));
         } catch (Exception e) {
             // AI 接口异常时不要静默丢消息：返回 200 + 友好兜底文案，Python 端会把提示发回微信
             log.error("调用远端大模型失败，会话 [{}]，原始消息：{}", conversationId, text, e);
             String fallback = "抱歉，AI 服务暂时不可用，请稍后再试。";
             MessageTraceLogger.sent(sender, fallback);
             safeLogMessage(conversationId, scene, "SENT", sender, clientIp, fallback, "", ragEnabled);
-            return ResponseEntity.ok(new ReplyResponse(fallback, ragEnabled, null));
+            // 模型失败前若已生成笔记草稿（工具调用成功），草稿仍然随响应返回供用户确认
+            return ResponseEntity.ok(new ReplyResponse(fallback, ragEnabled, null, drainPendingNotes()));
         }
+    }
+
+    /** 取走本次请求中 AI 生成的笔记草稿（两阶段写入：随响应下发，等用户确认） */
+    private List<PendingNoteDto> drainPendingNotes() {
+        return vaultNoteService.drainDrafts().stream()
+                .map(n -> new PendingNoteDto(n.id(), n.path(), n.content()))
+                .toList();
     }
 
     /**
@@ -401,8 +413,17 @@ public class WechatBridgeController {
                                String scene, String chat, String sessionId, String provider) {
     }
 
-    /** 响应体：provider 为 null 表示本条不是模型生成（如清空记忆/系统兜底） */
-    public record ReplyResponse(String reply, boolean ragUsed, String provider) {
+    /** 响应体：provider 为 null 表示本条不是模型生成（如清空记忆/系统兜底）；
+     *  pendingNotes 非空表示 AI 生成了笔记草稿，前端渲染确认卡片（两阶段写入） */
+    public record ReplyResponse(String reply, boolean ragUsed, String provider,
+                                List<PendingNoteDto> pendingNotes) {
+        public ReplyResponse(String reply, boolean ragUsed, String provider) {
+            this(reply, ragUsed, provider, null);
+        }
+    }
+
+    /** AI 笔记草稿：确认 POST /api/vault/note/confirm，拒绝 POST /api/vault/note/reject */
+    public record PendingNoteDto(String id, String path, String content) {
     }
 
     /** 会话模型设置响应 */
