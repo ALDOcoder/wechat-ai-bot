@@ -35,7 +35,7 @@ public class ConversationSettingService {
      * 更新或创建会话设置（支持部分字段：传 null 的字段保持不变 / 用默认值）。
      *
      * @param scene           渠道：friend / group / web，创建时必填，缺省按 web
-     * @param preferredModel  偏好模型，仅接受 zhipu / deepseek，非法值归 zhipu
+     * @param preferredModel  偏好模型，仅接受 zhipu / glm4flash / deepseek，非法值归 zhipu
      * @param allowDeepseek   DeepSeek 授权，null = 不修改（创建时默认 false）
      */
     public ConversationSetting upsert(String conversationId, String scene,
@@ -65,7 +65,13 @@ public class ConversationSettingService {
     }
 
     private static String normalize(String model) {
-        return "deepseek".equalsIgnoreCase(model) ? "deepseek" : "zhipu";
+        if ("deepseek".equalsIgnoreCase(model)) {
+            return "deepseek";
+        }
+        if ("glm4flash".equalsIgnoreCase(model) || "glm-4-flash".equalsIgnoreCase(model)) {
+            return "glm4flash";
+        }
+        return "zhipu";
     }
 
     private static ConversationSetting toSetting(java.sql.ResultSet rs) throws java.sql.SQLException {

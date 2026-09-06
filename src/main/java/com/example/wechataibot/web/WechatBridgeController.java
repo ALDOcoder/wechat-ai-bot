@@ -38,7 +38,7 @@ import java.util.List;
  * <p>工作方式：
  * <pre>
  *   Python(wxauto) / Web 前端 收到消息
- *       └─ POST /api/reply  {"sender":"张三","content":"你好","scene":"friend|web","sessionId":"...","provider":"zhipu|deepseek"}
+ *       └─ POST /api/reply  {"sender":"张三","content":"你好","scene":"friend|web","sessionId":"...","provider":"zhipu|glm4flash|deepseek"}
  *             └─ Spring AI Agent（ChatClient + Function Calling）
  *                模型自主决定是否调用工具（知识库检索 / 当前时间）
  *       ┌─ 返回 {"reply":"你好呀！","ragUsed":false,"provider":"zhipu"}
@@ -56,10 +56,11 @@ import java.util.List;
  *
  * <p>模型选择与权限（详见 docs/MODEL-SWITCH.md）：
  * <ul>
- *     <li>provider 缺省 = 取会话偏好（preferred_model），再缺省 zhipu（免费）；</li>
+ *     <li>provider 缺省 = 取会话偏好（preferred_model），再缺省 zhipu（免费）；
+ *         可选 zhipu（GLM-4.7-Flash）/ glm4flash（GLM-4-Flash，免费备选）/ deepseek（付费）；</li>
  *     <li>请求 deepseek 但会话未授权（allow_deepseek=0）→ 强制回落 zhipu；</li>
  *     <li>deepseek 调用失败 → 自动回落 zhipu 一次，响应标注实际 provider；</li>
- *     <li>对话记忆（chat_memory）两个模型共享，不按模型拆分。</li>
+ *     <li>对话记忆（chat_memory）各模型共享，不按模型拆分。</li>
  * </ul>
  *
  * <p>⚠️ 风险提示（务必阅读）：
@@ -88,9 +89,11 @@ public class WechatBridgeController {
 
     /** 可用模型标识 */
     private static final String PROVIDER_ZHIPU = "zhipu";
+    private static final String PROVIDER_GLM4FLASH = "glm4flash";
     private static final String PROVIDER_DEEPSEEK = "deepseek";
 
     private final ChatClient zhipuChatClient;
+    private final ChatClient glm4FlashChatClient;
     private final ChatClient deepSeekChatClient;
     private final ChatMemory chatMemory;
     private final GeneralAgentTools generalTools;
@@ -100,6 +103,7 @@ public class WechatBridgeController {
     private final ConversationSettingService conversationSettingService;
 
     public WechatBridgeController(@Qualifier("zhipuChatModel") OpenAiChatModel zhipuChatModel,
+                                  @Qualifier("glm4FlashChatModel") OpenAiChatModel glm4FlashChatModel,
                                   @Qualifier("deepSeekChatModel") OpenAiChatModel deepSeekChatModel,
                                   ChatMemory chatMemory,
                                   GeneralAgentTools generalTools, KnowledgeAgentTool knowledgeTool,
@@ -113,6 +117,7 @@ public class WechatBridgeController {
         this.conversationSettingService = conversationSettingService;
         this.chatMemory = chatMemory;
         this.zhipuChatClient = ChatClient.builder(zhipuChatModel).defaultSystem(SYSTEM_PROMPT).build();
+        this.glm4FlashChatClient = ChatClient.builder(glm4FlashChatModel).defaultSystem(SYSTEM_PROMPT).build();
         this.deepSeekChatClient = ChatClient.builder(deepSeekChatModel).defaultSystem(SYSTEM_PROMPT).build();
     }
 
@@ -167,8 +172,9 @@ public class WechatBridgeController {
     public ResponseEntity<?> updateConversationSetting(@PathVariable String conversationId,
                                                        @RequestBody(required = false) ConversationSettingUpdateRequest body) {
         String preferred = body == null ? null : body.preferredModel();
-        if (preferred != null && !PROVIDER_ZHIPU.equals(preferred) && !PROVIDER_DEEPSEEK.equals(preferred)) {
-            return ResponseEntity.badRequest().body("preferredModel 只能是 zhipu 或 deepseek");
+        if (preferred != null && !PROVIDER_ZHIPU.equals(preferred)
+                && !PROVIDER_GLM4FLASH.equals(preferred) && !PROVIDER_DEEPSEEK.equals(preferred)) {
+            return ResponseEntity.badRequest().body("preferredModel 只能是 zhipu / glm4flash / deepseek");
         }
         ConversationSetting setting = conversationSettingService.upsert(
                 conversationId,
@@ -236,7 +242,11 @@ public class WechatBridgeController {
 
         // 模型选择：请求显式 provider > 会话偏好 > 默认智谱；deepseek 需授权，未授权强制回落
         String provider = resolveProvider(request.provider(), conversationId);
-        ChatClient chatClient = PROVIDER_DEEPSEEK.equals(provider) ? deepSeekChatClient : zhipuChatClient;
+        ChatClient chatClient = switch (provider) {
+            case PROVIDER_DEEPSEEK -> deepSeekChatClient;
+            case PROVIDER_GLM4FLASH -> glm4FlashChatClient;
+            default -> zhipuChatClient;
+        };
 
         // 组装本次可用的工具：通用工具始终可用，知识库工具按 RAG 开关动态追加
         List<Object> tools = new ArrayList<>();
@@ -303,17 +313,28 @@ public class WechatBridgeController {
      */
     private String resolveProvider(String requested, String conversationId) {
         ConversationSetting setting = conversationSettingService.get(conversationId);
-        String preferred = (setting != null && PROVIDER_DEEPSEEK.equals(setting.getPreferredModel()))
-                ? PROVIDER_DEEPSEEK : PROVIDER_ZHIPU;
+        String preferred = normalizeProvider(setting == null ? null : setting.getPreferredModel());
         boolean allowDeepseek = setting != null && Boolean.TRUE.equals(setting.getAllowDeepseek());
         String want = (requested == null || requested.isBlank())
                 ? preferred
-                : (PROVIDER_DEEPSEEK.equals(requested.trim().toLowerCase()) ? PROVIDER_DEEPSEEK : PROVIDER_ZHIPU);
+                : normalizeProvider(requested.trim());
         if (PROVIDER_DEEPSEEK.equals(want) && !allowDeepseek) {
             log.warn("会话 [{}] 未授权使用 deepseek，已强制回落 zhipu", conversationId);
             return PROVIDER_ZHIPU;
         }
         return want;
+    }
+
+    /** provider 归一化：glm-4-flash 别名归为 glm4flash，未知值归默认 zhipu */
+    private static String normalizeProvider(String provider) {
+        if (provider == null || provider.isBlank()) {
+            return PROVIDER_ZHIPU;
+        }
+        return switch (provider.trim().toLowerCase()) {
+            case PROVIDER_DEEPSEEK -> PROVIDER_DEEPSEEK;
+            case PROVIDER_GLM4FLASH, "glm-4-flash" -> PROVIDER_GLM4FLASH;
+            default -> PROVIDER_ZHIPU;
+        };
     }
 
     /** 消息流水落库，失败只告警、不影响正常回复 */
