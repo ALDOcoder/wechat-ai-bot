@@ -94,9 +94,15 @@ obsidian:
   top-k: 5
   # 单个笔记块的最大字符数
   max-chunk-chars: 600
-  # 相对路径中包含这些片段的文件不索引（默认排除工具目录和私人聊天 40-Life）
+  # 相对路径中包含这些片段的文件不索引（默认排除工具目录和私人聊天 40-Life）。
+  # 更多规则可经 /api/rag/patterns 动态管理（数据字典表，前端可增删改，改后自动重建索引）；
+  # 本基线不可通过 API 移除，保护真正隐私的目录。
   exclude-patterns:
     - .mimocode
     - node_modules
     - .obsidian
     - 40-Life
+  # Agent 写笔记输出目录（相对库根目录）：web 端聊天让 AI 保存笔记时写入这里，
+  # 写入后立即加入检索索引。留空 = 禁用笔记写入工具。
+  # 不想被检索时，把本目录加进 /api/rag/patterns 的排除规则即可。
+  agent-output-dir: 90-Agent

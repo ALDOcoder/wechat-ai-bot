@@ -112,6 +112,22 @@ Invoke-RestMethod "http://127.0.0.1:8080/api/rag/search?q=金蝶苍穹"  # 测�
 默认排除 `.mimocode` / `node_modules` / `.obsidian` / `40-Life`（私人聊天），可用
 `application.yml` 的 `obsidian.exclude-patterns` 调整。
 
+**排除规则数据字典（前端可管理）**：更多规则可通过 `/api/rag/patterns` 动态管理，
+改后自动重建索引、全局立即生效，适合保护真正隐私的笔记：
+
+```powershell
+# 生效语义 = yml 基线（不可 API 移除）∪ 数据库规则（并集）
+Invoke-RestMethod http://127.0.0.1:8080/api/rag/patterns                                   # 列表
+Invoke-RestMethod -Method Post http://127.0.0.1:8080/api/rag/patterns -ContentType "application/json; charset=utf-8" -Body '{"pattern":"私人目录","remark":"私人日记"}'
+Invoke-RestMethod -Method Put  http://127.0.0.1:8080/api/rag/patterns/1 -ContentType "application/json" -Body '{"enabled":false}'   # 停用
+Invoke-RestMethod -Method Delete http://127.0.0.1:8080/api/rag/patterns/1                 # 删除
+```
+
+**Agent 写笔记（web 端）**：网页聊天里对 AI 说“帮我把××记成笔记”，它会调用
+`writeNote` 工具把内容写成 Markdown 存入库内 `obsidian.agent-output-dir` 目录
+（默认 `90-Agent`，留空禁用），写入后立即进检索索引。安全护栏：只写该目录、
+文件名清洗防路径穿越、同名自动加序号永不覆盖、单篇限 2 万字符。
+
 > 默认 `wechat.bot.enabled=false`，旧的网页版微信登录已关闭，Java 端不会再弹二维码、不会创建 assets 二维码图片。
 
 ### 4. 安装 Python 依赖

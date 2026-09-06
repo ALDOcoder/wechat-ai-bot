@@ -29,6 +29,12 @@ public class ObsidianProperties {
     private List<String> excludePatterns = new ArrayList<>(List.of(
             ".mimocode", "node_modules", ".obsidian", "40-Life"));
 
+    /**
+     * Agent 写笔记的输出目录（相对 vault 根目录），仅 web 端聊天可用。
+     * 留空 = 禁用笔记写入工具；写入的笔记立即加入检索索引。
+     */
+    private String agentOutputDir = "";
+
     public String getVaultPath() {
         return vaultPath;
     }
@@ -59,6 +65,14 @@ public class ObsidianProperties {
 
     public void setExcludePatterns(List<String> excludePatterns) {
         this.excludePatterns = excludePatterns;
+    }
+
+    public String getAgentOutputDir() {
+        return agentOutputDir;
+    }
+
+    public void setAgentOutputDir(String agentOutputDir) {
+        this.agentOutputDir = agentOutputDir == null ? "" : agentOutputDir.trim();
     }
 
     /** 是否启用 RAG */

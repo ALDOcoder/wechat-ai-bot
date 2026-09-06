@@ -1,6 +1,7 @@
 package com.example.wechataibot.rag;
 
 import com.example.wechataibot.config.ObsidianProperties;
+import com.example.wechataibot.persistence.RagExcludePatternService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,8 +17,9 @@ import java.util.stream.Stream;
 /**
  * Obsidian 库索引：启动时扫描 Markdown 文件，按标题/段落切成笔记块，保存在内存中。
  *
- * <p>排除规则来自 {@link ObsidianProperties#getExcludePatterns()}（相对路径包含匹配），
- * 默认排除 .mimocode / node_modules / .obsidian / 40-Life（私人聊天）。
+ * <p>排除规则两层合并（并集）：{@link ObsidianProperties#getExcludePatterns()} 静态基线
+ * + 数据字典动态规则（{@link RagExcludePatternService}，前端经 /api/rag/patterns 增删改，
+ * 改后调 rebuild() 立即生效）。基线不可通过 API 移除，保护真正隐私的目录。
  */
 @Service
 public class VaultIndexService {
@@ -25,12 +27,14 @@ public class VaultIndexService {
     private static final Logger log = LoggerFactory.getLogger(VaultIndexService.class);
 
     private final ObsidianProperties props;
+    private final RagExcludePatternService patternService;
     private volatile List<NoteChunk> chunks = List.of();
     private volatile int fileCount = 0;
     private volatile String lastError = "";
 
-    public VaultIndexService(ObsidianProperties props) {
+    public VaultIndexService(ObsidianProperties props, RagExcludePatternService patternService) {
         this.props = props;
+        this.patternService = patternService;
     }
 
     @PostConstruct
@@ -57,10 +61,12 @@ public class VaultIndexService {
         }
 
         List<NoteChunk> list = new ArrayList<>();
+        // 动态规则只取一次（rebuild 同步执行，毫秒级）；DB 异常时降级为仅 yml 基线
+        List<String> dynamicRules = loadDynamicRules();
         try (Stream<Path> paths = Files.walk(root)) {
             paths.filter(Files::isRegularFile)
                     .filter(p -> p.toString().toLowerCase().endsWith(".md"))
-                    .filter(this::notExcluded)
+                    .filter(p -> notExcluded(p, dynamicRules))
                     .forEach(p -> list.addAll(chunkFile(p, root)));
         } catch (IOException e) {
             lastError = "扫描 vault 失败: " + e.getMessage();
@@ -85,16 +91,37 @@ public class VaultIndexService {
         return lastError;
     }
 
-    private boolean notExcluded(Path file) {
+    /** yml 基线 ∪ 数据字典动态规则；DB 异常时仅用基线并告警（不影响索引重建） */
+    private List<String> loadDynamicRules() {
+        try {
+            return patternService.activePatterns();
+        } catch (Exception e) {
+            log.warn("读取动态排除规则失败，本次仅使用 yml 基线：{}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** 排除判定：相对路径子串匹配（忽略大小写），外加导航/索引文件 */
+    private boolean notExcluded(Path file, List<String> dynamicRules) {
         String rel = file.toString().replace('\\', '/').toLowerCase();
-        for (String pattern : props.getExcludePatterns()) {
-            if (pattern != null && !pattern.isBlank() && rel.contains(pattern.toLowerCase())) {
-                return false;
-            }
+        if (matchesAny(rel, props.getExcludePatterns()) || matchesAny(rel, dynamicRules)) {
+            return false;
         }
         // 导航/索引文件检索价值低，默认不索引
         String name = file.getFileName().toString().toLowerCase();
         return !name.equals("_index.md") && !name.endsWith("moc.md");
+    }
+
+    private static boolean matchesAny(String relPath, List<String> patterns) {
+        if (patterns == null) {
+            return false;
+        }
+        for (String pattern : patterns) {
+            if (pattern != null && !pattern.isBlank() && relPath.contains(pattern.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<NoteChunk> chunkFile(Path file, Path root) {

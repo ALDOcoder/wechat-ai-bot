@@ -34,6 +34,19 @@ CREATE TABLE IF NOT EXISTS conversation_summary (
   updated_at      DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
+-- RAG 排除规则数据字典：一行一条规则，前端经 /api/rag/patterns 增删改（改后自动重建索引）
+-- pattern = 相对路径子串匹配（忽略大小写）；enabled=0 表示停用但保留记录
+-- 生效语义 = application.yml 的 exclude-patterns 基线 ∪ 本表 enabled=1 的规则（并集）
+CREATE TABLE IF NOT EXISTS rag_exclude_pattern (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  pattern    VARCHAR(200) NOT NULL,
+  remark     VARCHAR(200) NOT NULL DEFAULT '',
+  enabled    TINYINT(1)   NOT NULL DEFAULT 1,
+  created_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_pattern (pattern)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
 -- 会话设置：每个会话一行的“权限 + 偏好”
 -- preferred_model 记录该会话默认用哪个模型（zhipu=免费 / deepseek=付费）
 -- allow_deepseek  是否允许该会话切换到付费模型（默认 0 = 全禁，网页后台动态开启）

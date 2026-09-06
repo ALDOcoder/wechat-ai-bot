@@ -2,6 +2,7 @@ package com.example.wechataibot.web;
 
 import com.example.wechataibot.agent.GeneralAgentTools;
 import com.example.wechataibot.agent.KnowledgeAgentTool;
+import com.example.wechataibot.agent.ObsidianNoteWriterTool;
 import com.example.wechataibot.config.ObsidianProperties;
 import com.example.wechataibot.persistence.ConversationSettingService;
 import com.example.wechataibot.persistence.ConversationSummaryService;
@@ -83,7 +84,8 @@ public class WechatBridgeController {
     /** 给大模型的系统提示词，可自行调整人设 */
     private static final String SYSTEM_PROMPT =
             "你是一个友善、简洁的微信聊天助手，请用自然的中文与用户聊天，回答尽量简短（一般不超过 100 字）。"
-            + "你可以自主决定是否调用工具来获取额外信息，再据此回答。";
+            + "你可以自主决定是否调用工具来获取额外信息，再据此回答。"
+            + "当用户明确要求把内容保存或记录成笔记时，可以调用笔记写入工具帮他存进知识库。";
 
     /** 发送这条消息会清空当前会话的记忆 */
     private static final String CLEAR_MEMORY_COMMAND = "清空记忆";
@@ -99,6 +101,7 @@ public class WechatBridgeController {
     private final ChatMemory chatMemory;
     private final GeneralAgentTools generalTools;
     private final KnowledgeAgentTool knowledgeTool;
+    private final ObsidianNoteWriterTool noteWriterTool;
     private final ObsidianProperties obsidianProperties;
     private final MessageLogRepository messageLogRepository;
     private final ConversationSettingService conversationSettingService;
@@ -109,12 +112,14 @@ public class WechatBridgeController {
                                   @Qualifier("deepSeekChatModel") OpenAiChatModel deepSeekChatModel,
                                   ChatMemory chatMemory,
                                   GeneralAgentTools generalTools, KnowledgeAgentTool knowledgeTool,
+                                  ObsidianNoteWriterTool noteWriterTool,
                                   ObsidianProperties obsidianProperties,
                                   MessageLogRepository messageLogRepository,
                                   ConversationSettingService conversationSettingService,
                                   ConversationSummaryService conversationSummaryService) {
         this.generalTools = generalTools;
         this.knowledgeTool = knowledgeTool;
+        this.noteWriterTool = noteWriterTool;
         this.obsidianProperties = obsidianProperties;
         this.messageLogRepository = messageLogRepository;
         this.conversationSettingService = conversationSettingService;
@@ -262,11 +267,15 @@ public class WechatBridgeController {
             default -> zhipuChatClient;
         };
 
-        // 组装本次可用的工具：通用工具始终可用，知识库工具按 RAG 开关动态追加
+        // 组装本次可用的工具：通用工具始终可用，知识库工具按 RAG 开关动态追加，
+        // 笔记写入工具仅 web 端开放（用户在网页里明确要求保存时才写）
         List<Object> tools = new ArrayList<>();
         tools.add(generalTools);
         if (ragEnabled) {
             tools.add(knowledgeTool);
+            if ("web".equals(scene)) {
+                tools.add(noteWriterTool);
+            }
         }
 
         try {
